@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   StyleSheet,
   Text,
@@ -10,9 +10,17 @@ import {
   StatusBar,
   Alert,
   PanResponder,
+  PanResponderGestureState,
 } from "react-native";
 
-const SAMPLE_CARDS = [
+// Define card data type
+interface Card {
+  id: number;
+  question: string;
+  answer: string;
+}
+
+const SAMPLE_CARDS: Card[] = [
   {
     id: 1,
     question: "What is React Native?",
@@ -44,53 +52,64 @@ const SAMPLE_CARDS = [
 ];
 
 const { width } = Dimensions.get("window");
-const SWIPE_THRESHOLD = 120; // Minimum distance required to trigger a swipe action
+const SWIPE_THRESHOLD = 120;
 
-const App = () => {
-  const [cards, setCards] = useState(SAMPLE_CARDS);
-  const [currentIndex, setCurrentIndex] = useState(0);
+const App: React.FC = () => {
+  const [cards, setCards] = useState<Card[]>(SAMPLE_CARDS);
+  const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [completed, setCompleted] = useState<number[]>([]);
-  const [isFlipped, setIsFlipped] = useState(false);
+  const [isFlipped, setIsFlipped] = useState<boolean>(false);
 
+  // Animation values
+  const position = useRef(new Animated.ValueXY()).current;
+  const rotation = position.x.interpolate({
+    inputRange: [-width / 2, 0, width / 2],
+    outputRange: ["-10deg", "0deg", "10deg"],
+    extrapolate: "clamp",
+  });
   const flipAnimation = useRef(new Animated.Value(0)).current;
-  const swipeAnimation = useRef(new Animated.Value(0)).current;
-  const swipeOpacity = useRef(new Animated.Value(1)).current;
 
-  // Initialize PanResponder for swipe gestures
+  // Reset position when current index changes
+  useEffect(() => {
+    position.setValue({ x: 0, y: 0 });
+    setIsFlipped(false);
+    flipAnimation.setValue(0);
+  }, [currentIndex]);
+
+  // Initialize PanResponder for the card swipe
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        // Only respond to horizontal movements
-        return Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
+      onMoveShouldSetPanResponder: (
+        _,
+        gestureState: PanResponderGestureState
+      ) => {
+        // Only handle horizontal swipes, not taps
+        return Math.abs(gestureState.dx) > 5;
       },
-      onPanResponderMove: (_, gestureState) => {
-        // Update position based on gesture
-        swipeAnimation.setValue(gestureState.dx);
+      onPanResponderGrant: () => {
+        // Fix: Don't use ._value property directly
+        position.extractOffset();
+      },
+      onPanResponderMove: (_, gestureState: PanResponderGestureState) => {
+        // Update card position with gesture movement
+        position.setValue({ x: gestureState.dx, y: 0 });
+      },
+      onPanResponderRelease: (_, gestureState: PanResponderGestureState) => {
+        position.flattenOffset();
 
-        // Calculate opacity based on swipe distance
-        const opacityValue =
-          1 - Math.min(Math.abs(gestureState.dx) / (width * 1.5), 0.5);
-        swipeOpacity.setValue(opacityValue);
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        // Check if swipe was significant enough
+        // Handle swipe right (previous)
         if (gestureState.dx > SWIPE_THRESHOLD) {
-          // Swipe right (previous card)
-          handleSwipeComplete("previous");
-        } else if (gestureState.dx < -SWIPE_THRESHOLD) {
-          // Swipe left (next card)
-          handleSwipeComplete("next");
-        } else {
-          // Return to center if not enough to trigger action
-          Animated.spring(swipeAnimation, {
-            toValue: 0,
-            friction: 5,
-            useNativeDriver: true,
-          }).start();
-
-          Animated.spring(swipeOpacity, {
-            toValue: 1,
+          swipeCard("right");
+        }
+        // Handle swipe left (next)
+        else if (gestureState.dx < -SWIPE_THRESHOLD) {
+          swipeCard("left");
+        }
+        // Return to center if not enough to trigger swipe
+        else {
+          Animated.spring(position, {
+            toValue: { x: 0, y: 0 },
             friction: 5,
             useNativeDriver: true,
           }).start();
@@ -99,75 +118,79 @@ const App = () => {
     })
   ).current;
 
-  const handleSwipeComplete = (direction: string) => {
-    const moveToValue = direction === "next" ? -width : width;
-
-    // Animate card moving out
-    Animated.timing(swipeAnimation, {
-      toValue: moveToValue,
+  const swipeCard = (direction: "left" | "right"): void => {
+    const x = direction === "right" ? width + 100 : -width - 100;
+    Animated.timing(position, {
+      toValue: { x, y: 0 },
       duration: 300,
       useNativeDriver: true,
     }).start(() => {
-      // Update index based on swipe direction
-      if (direction === "next" && currentIndex < cards.length - 1) {
+      // Update card index based on swipe direction
+      if (direction === "left" && currentIndex < cards.length - 1) {
         setCurrentIndex(currentIndex + 1);
-      } else if (direction === "previous" && currentIndex > 0) {
+      } else if (direction === "right" && currentIndex > 0) {
         setCurrentIndex(currentIndex - 1);
+      } else {
+        // Spring back if can't go further
+        Animated.spring(position, {
+          toValue: { x: 0, y: 0 },
+          friction: 5,
+          useNativeDriver: true,
+        }).start();
       }
-
-      // Reset animations and flip state
-      swipeAnimation.setValue(0);
-      swipeOpacity.setValue(1);
-      setIsFlipped(false);
-      flipAnimation.setValue(0);
     });
   };
 
-  const flipCard = () => {
-    setIsFlipped(!isFlipped);
-    Animated.spring(flipAnimation, {
-      toValue: isFlipped ? 0 : 1,
-      friction: 8,
-      tension: 10,
-      useNativeDriver: true,
-    }).start();
+  const flipCard = (): void => {
+    // Get current position value
+    const currentX = position.x as unknown as { _value?: number };
+    const xValue = currentX._value || 0;
+
+    // Only allow flipping if not currently swiping
+    if (Math.abs(xValue) < 5) {
+      setIsFlipped(!isFlipped);
+      Animated.spring(flipAnimation, {
+        toValue: isFlipped ? 0 : 1,
+        friction: 8,
+        tension: 10,
+        useNativeDriver: true,
+      }).start();
+    }
   };
 
   const frontAnimatedStyle = {
     transform: [
+      { translateX: position.x },
+      { rotate: rotation },
       {
         rotateY: flipAnimation.interpolate({
           inputRange: [0, 1],
           outputRange: ["0deg", "180deg"],
         }),
       },
-      { translateX: swipeAnimation },
     ],
-    opacity: swipeOpacity,
   };
 
   const backAnimatedStyle = {
     transform: [
+      { translateX: position.x },
+      { rotate: rotation },
       {
         rotateY: flipAnimation.interpolate({
           inputRange: [0, 1],
           outputRange: ["180deg", "360deg"],
         }),
       },
-      { translateX: swipeAnimation },
     ],
-    opacity: swipeOpacity,
   };
 
-  const markCard = (remembered: boolean) => {
-    // Mark current card as completed if remembered
+  const markCard = (remembered: boolean): void => {
     if (remembered) {
       setCompleted([...completed, cards[currentIndex].id]);
     }
 
-    // Move to next card or show completion if done
     if (currentIndex < cards.length - 1) {
-      handleSwipeComplete("next");
+      swipeCard("left");
     } else {
       const score = remembered ? completed.length + 1 : completed.length;
       Alert.alert(
@@ -178,11 +201,90 @@ const App = () => {
     }
   };
 
-  const resetSession = () => {
+  const resetSession = (): void => {
     setCurrentIndex(0);
     setCompleted([]);
     setIsFlipped(false);
     flipAnimation.setValue(0);
+    position.setValue({ x: 0, y: 0 });
+  };
+
+  const renderCardContent = (): React.ReactNode => {
+    if (currentIndex >= cards.length) {
+      return (
+        <View style={[styles.card, styles.endCard]}>
+          <Text style={styles.endCardText}>All Cards Completed!</Text>
+          <TouchableOpacity style={styles.restartButton} onPress={resetSession}>
+            <Text style={styles.restartButtonText}>Restart</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    return (
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={flipCard}
+        style={styles.cardWrapper}
+        {...panResponder.panHandlers}
+      >
+        {/* Front of card */}
+        <Animated.View
+          style={[
+            styles.card,
+            styles.frontCard,
+            frontAnimatedStyle,
+            {
+              opacity: flipAnimation.interpolate({
+                inputRange: [0.5, 1],
+                outputRange: [1, 0],
+                extrapolate: "clamp",
+              }),
+            },
+          ]}
+        >
+          <Text style={styles.cardQuestion}>
+            {cards[currentIndex].question}
+          </Text>
+          <Text style={styles.tapHint}>Tap to flip</Text>
+          <View style={styles.swipeIndicators}>
+            <View style={styles.swipeLeftIndicator}>
+              <Text style={styles.swipeIndicatorText}>←</Text>
+            </View>
+            <View style={styles.swipeRightIndicator}>
+              <Text style={styles.swipeIndicatorText}>→</Text>
+            </View>
+          </View>
+        </Animated.View>
+
+        {/* Back of card */}
+        <Animated.View
+          style={[
+            styles.card,
+            styles.backCard,
+            backAnimatedStyle,
+            {
+              opacity: flipAnimation.interpolate({
+                inputRange: [0, 0.5],
+                outputRange: [0, 1],
+                extrapolate: "clamp",
+              }),
+            },
+          ]}
+        >
+          <Text style={styles.cardAnswer}>{cards[currentIndex].answer}</Text>
+          <Text style={styles.tapHint}>Tap to flip back</Text>
+          <View style={styles.swipeIndicators}>
+            <View style={styles.swipeLeftIndicator}>
+              <Text style={styles.swipeIndicatorText}>←</Text>
+            </View>
+            <View style={styles.swipeRightIndicator}>
+              <Text style={styles.swipeIndicatorText}>→</Text>
+            </View>
+          </View>
+        </Animated.View>
+      </TouchableOpacity>
+    );
   };
 
   return (
@@ -196,64 +298,13 @@ const App = () => {
         </Text>
       </View>
 
-      <View style={styles.cardContainer}>
-        <View style={styles.swipeInstructions}>
-          <Text style={styles.swipeText}>Swipe left for next card</Text>
-          <Text style={styles.swipeText}>Swipe right for previous card</Text>
-        </View>
-
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onPress={flipCard}
-          {...panResponder.panHandlers}
-        >
-          {/* Front of card */}
-          <Animated.View
-            style={[
-              styles.card,
-              styles.frontCard,
-              frontAnimatedStyle,
-              {
-                opacity: Animated.multiply(
-                  swipeOpacity,
-                  flipAnimation.interpolate({
-                    inputRange: [0.5, 1],
-                    outputRange: [1, 0],
-                    extrapolate: "clamp",
-                  })
-                ),
-              },
-            ]}
-          >
-            <Text style={styles.cardQuestion}>
-              {cards[currentIndex].question}
-            </Text>
-            <Text style={styles.tapHint}>Tap to flip</Text>
-          </Animated.View>
-
-          {/* Back of card */}
-          <Animated.View
-            style={[
-              styles.card,
-              styles.backCard,
-              backAnimatedStyle,
-              {
-                opacity: Animated.multiply(
-                  swipeOpacity,
-                  flipAnimation.interpolate({
-                    inputRange: [0, 0.5],
-                    outputRange: [0, 1],
-                    extrapolate: "clamp",
-                  })
-                ),
-              },
-            ]}
-          >
-            <Text style={styles.cardAnswer}>{cards[currentIndex].answer}</Text>
-            <Text style={styles.tapHint}>Tap to flip back</Text>
-          </Animated.View>
-        </TouchableOpacity>
+      <View style={styles.instructions}>
+        <Text style={styles.instructionText}>
+          Swipe left for next card, right for previous
+        </Text>
       </View>
+
+      <View style={styles.cardContainer}>{renderCardContent()}</View>
 
       <View style={styles.buttonsContainer}>
         <TouchableOpacity
@@ -295,28 +346,27 @@ const styles = StyleSheet.create({
     color: "#666",
     fontWeight: "500",
   },
+  instructions: {
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  instructionText: {
+    fontSize: 14,
+    color: "#666",
+  },
   cardContainer: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     marginHorizontal: 20,
   },
-  swipeInstructions: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    alignItems: "center",
-    paddingVertical: 10,
-  },
-  swipeText: {
-    color: "#666",
-    fontSize: 14,
-    marginBottom: 5,
-  },
-  card: {
+  cardWrapper: {
     width: width - 60,
     height: 300,
+  },
+  card: {
+    width: "100%",
+    height: "100%",
     borderRadius: 12,
     padding: 20,
     alignItems: "center",
@@ -358,6 +408,47 @@ const styles = StyleSheet.create({
     bottom: 20,
     fontSize: 14,
     color: "#999",
+  },
+  swipeIndicators: {
+    position: "absolute",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+    paddingHorizontal: 10,
+  },
+  swipeLeftIndicator: {
+    opacity: 0.3,
+  },
+  swipeRightIndicator: {
+    opacity: 0.3,
+  },
+  swipeIndicatorText: {
+    fontSize: 24,
+    fontWeight: "bold",
+  },
+  endCard: {
+    backgroundColor: "#f0f0f0",
+    borderColor: "#ccc",
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  endCardText: {
+    fontSize: 22,
+    fontWeight: "bold",
+    marginBottom: 20,
+    color: "#333",
+  },
+  restartButton: {
+    backgroundColor: "#2196F3",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+  },
+  restartButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
   },
   buttonsContainer: {
     flexDirection: "row",
