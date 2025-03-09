@@ -12,6 +12,7 @@ import {
   PanResponder,
   PanResponderGestureState,
 } from "react-native";
+import SwipeCard from "../../components/SwipeCard";
 
 // Define card data type
 interface Card {
@@ -19,7 +20,7 @@ interface Card {
   question: string;
   answer: string;
 }
-
+const cards1 = ["Card 1", "Card 2", "Card 3"];
 const SAMPLE_CARDS: Card[] = [
   {
     id: 1,
@@ -184,6 +185,23 @@ const App: React.FC = () => {
     ],
   };
 
+  const [cardIndex, setCardIndex] = useState(0);
+
+  const handleSwipeRight = () => {
+    console.log("Swiped Right");
+    nextCard();
+  };
+
+  const handleSwipeLeft = () => {
+    console.log("Swiped Left");
+    nextCard();
+  };
+
+  const nextCard = () => {
+    setCardIndex((prevIndex) =>
+      prevIndex + 1 < cards1.length ? prevIndex + 1 : 0
+    );
+  };
   const markCard = (remembered: boolean): void => {
     if (remembered) {
       setCompleted([...completed, cards[currentIndex].id]);
@@ -304,7 +322,16 @@ const App: React.FC = () => {
         </Text>
       </View>
 
-      <View style={styles.cardContainer}>{renderCardContent()}</View>
+      {/* <View style={styles.cardContainer}>{renderCardContent()}</View> */}
+      <View style={styles.cardContainer}>
+        {cardIndex < cards1.length ? (
+          <SwipeCard
+            text={cards1[cardIndex]}
+            onSwipeRight={handleSwipeRight}
+            onSwipeLeft={handleSwipeLeft}
+          />
+        ) : null}
+      </View>
 
       <View style={styles.buttonsContainer}>
         <TouchableOpacity
