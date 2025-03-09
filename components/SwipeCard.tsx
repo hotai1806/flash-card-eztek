@@ -27,13 +27,13 @@ const SwipeCard: React.FC<SwipeCardProps> = ({
 
   const panResponder = PanResponder.create({
     onStartShouldSetPanResponder: () => true,
-    onPanResponderMove: Animated.event([{ dx: position.x, dy: position.y }], {
-      useNativeDriver: false,
-    }),
-    onPanResponderRelease: (_, gesture) => {
-      if (gesture.dx > SWIPE_THRESHOLD) {
+    onPanResponderMove: (_, gestureState) => {
+      position.setValue({ x: gestureState.dx, y: gestureState.dy });
+    },
+    onPanResponderRelease: (_, gestureState) => {
+      if (gestureState.dx > SWIPE_THRESHOLD) {
         swipeOffScreen("right");
-      } else if (gesture.dx < -SWIPE_THRESHOLD) {
+      } else if (gestureState.dx < -SWIPE_THRESHOLD) {
         swipeOffScreen("left");
       } else {
         resetPosition();
