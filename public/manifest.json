@@ -1,0 +1,26 @@
+{
+  "name": "Flashcards",
+  "short_name": "Flashcards",
+  "description": "Picture flashcards with spaced repetition. English, Chinese and Vietnamese.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f4f6f8",
+  "theme_color": "#0a7ea4",
+  "lang": "en",
+  "icons": [
+    {
+      "src": "/icons/icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

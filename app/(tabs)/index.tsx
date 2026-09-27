@@ -1,504 +1,223 @@
-import React, { useState, useRef, useEffect } from "react";
-import {
-  StyleSheet,
-  Text,
-  View,
-  TouchableOpacity,
-  Animated,
-  Dimensions,
-  SafeAreaView,
-  StatusBar,
-  Alert,
-  PanResponder,
-  PanResponderGestureState,
-} from "react-native";
-import SwipeCard from "../../components/SwipeCard";
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useMemo, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-// Define card data type
-interface Card {
-  id: number;
-  question: string;
-  answer: string;
-}
-const cards1 = ["Card 1", "Card 2", "Card 3"];
-const SAMPLE_CARDS: Card[] = [
-  {
-    id: 1,
-    question: "What is React Native?",
-    answer: "A framework for building native apps using React",
-  },
-  {
-    id: 2,
-    question: "What language is React Native written in?",
-    answer: "JavaScript and JSX",
-  },
-  {
-    id: 3,
-    question: "What is a component in React Native?",
-    answer:
-      "A reusable piece of UI that can be composed to build complex interfaces",
-  },
-  {
-    id: 4,
-    question: "What is JSX?",
-    answer:
-      "A syntax extension for JavaScript that allows writing HTML-like elements in JavaScript code",
-  },
-  {
-    id: 5,
-    question: "What is the difference between View and Text?",
-    answer:
-      "View is a container component, while Text is specifically for displaying text",
-  },
-];
+import CardForm from '@/components/CardForm';
+import PlantTile from '@/components/PlantTile';
+import { Button } from '@/components/ui/Button';
+import { useTheme } from '@/hooks/useTheme';
+import { formatPercent, formatRelative } from '@/lib/format';
+import { plantView, summarizeGarden } from '@/lib/garden';
+import { useI18n } from '@/lib/i18n';
+import { buildSession, isDue, isNew, nextDueAt } from '@/lib/srs';
+import { currentStreak, dayLog, lastDays } from '@/lib/stats';
+import { useStore } from '@/lib/store';
 
-const { width } = Dimensions.get("window");
-const SWIPE_THRESHOLD = 120;
+export default function HomeScreen() {
+  const theme = useTheme();
+  const { t } = useI18n();
+  const router = useRouter();
+  const { cards, settings, log } = useStore();
+  const [now, setNow] = useState(() => Date.now());
+  const [formOpen, setFormOpen] = useState(false);
 
-const App: React.FC = () => {
-  const [cards, setCards] = useState<Card[]>(SAMPLE_CARDS);
-  const [currentIndex, setCurrentIndex] = useState<number>(0);
-  const [completed, setCompleted] = useState<number[]>([]);
-  const [isFlipped, setIsFlipped] = useState<boolean>(false);
+  useFocusEffect(useCallback(() => setNow(Date.now()), []));
 
-  // Animation values
-  const position = useRef(new Animated.ValueXY()).current;
-  const rotation = position.x.interpolate({
-    inputRange: [-width / 2, 0, width / 2],
-    outputRange: ["-10deg", "0deg", "10deg"],
-    extrapolate: "clamp",
-  });
-  const flipAnimation = useRef(new Animated.Value(0)).current;
+  const due = useMemo(() => cards.filter((c) => !isNew(c.review) && isDue(c.review, now)).length, [cards, now]);
+  const fresh = useMemo(() => cards.filter((c) => isNew(c.review)).length, [cards]);
+  const session = useMemo(() => buildSession(cards, settings.newCardsPerSession, now), [cards, settings.newCardsPerSession, now]);
+  const garden = useMemo(() => summarizeGarden(cards, now), [cards, now]);
+  const today = dayLog(log, now);
+  const streak = currentStreak(log, now);
+  const week = lastDays(log, 7, now);
+  const goalPct = Math.min(1, today.reviews / Math.max(1, settings.dailyGoal));
 
-  // Reset position when current index changes
-  useEffect(() => {
-    position.setValue({ x: 0, y: 0 });
-    setIsFlipped(false);
-    flipAnimation.setValue(0);
-  }, [currentIndex]);
+  const thirstyPlants = useMemo(
+    () =>
+      cards
+        .filter((c) => !isNew(c.review))
+        .map((c) => ({ c, v: plantView(c.review, now) }))
+        .sort((a, b) => a.v.health - b.v.health)
+        .slice(0, 8),
+    [cards, now]
+  );
 
-  // Initialize PanResponder for the card swipe
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (
-        _,
-        gestureState: PanResponderGestureState
-      ) => {
-        // Only handle horizontal swipes, not taps
-        return Math.abs(gestureState.dx) > 5;
-      },
-      onPanResponderGrant: () => {
-        // Fix: Don't use ._value property directly
-        position.extractOffset();
-      },
-      onPanResponderMove: (_, gestureState: PanResponderGestureState) => {
-        // Update card position with gesture movement
-        position.setValue({ x: gestureState.dx, y: 0 });
-      },
-      onPanResponderRelease: (_, gestureState: PanResponderGestureState) => {
-        position.flattenOffset();
+  const hour = new Date(now).getHours();
+  const greeting = hour < 12 ? t('greetingMorning') : hour < 18 ? t('greetingAfternoon') : t('greetingEvening');
+  const next = nextDueAt(cards, now);
 
-        // Handle swipe right (previous)
-        if (gestureState.dx > SWIPE_THRESHOLD) {
-          swipeCard("right");
-        }
-        // Handle swipe left (next)
-        else if (gestureState.dx < -SWIPE_THRESHOLD) {
-          swipeCard("left");
-        }
-        // Return to center if not enough to trigger swipe
-        else {
-          Animated.spring(position, {
-            toValue: { x: 0, y: 0 },
-            friction: 5,
-            useNativeDriver: true,
-          }).start();
-        }
-      },
-    })
-  ).current;
-
-  const swipeCard = (direction: "left" | "right"): void => {
-    const x = direction === "right" ? width + 100 : -width - 100;
-    Animated.timing(position, {
-      toValue: { x, y: 0 },
-      duration: 300,
-      useNativeDriver: true,
-    }).start(() => {
-      // Update card index based on swipe direction
-      if (direction === "left" && currentIndex < cards.length - 1) {
-        setCurrentIndex(currentIndex + 1);
-      } else if (direction === "right" && currentIndex > 0) {
-        setCurrentIndex(currentIndex - 1);
-      } else {
-        // Spring back if can't go further
-        Animated.spring(position, {
-          toValue: { x: 0, y: 0 },
-          friction: 5,
-          useNativeDriver: true,
-        }).start();
-      }
-    });
-  };
-
-  const flipCard = (): void => {
-    // Get current position value
-    const currentX = position.x as unknown as { _value?: number };
-    const xValue = currentX._value || 0;
-
-    // Only allow flipping if not currently swiping
-    if (Math.abs(xValue) < 5) {
-      setIsFlipped(!isFlipped);
-      Animated.spring(flipAnimation, {
-        toValue: isFlipped ? 0 : 1,
-        friction: 8,
-        tension: 10,
-        useNativeDriver: true,
-      }).start();
-    }
-  };
-
-  const frontAnimatedStyle = {
-    transform: [
-      { translateX: position.x },
-      { rotate: rotation },
-      {
-        rotateY: flipAnimation.interpolate({
-          inputRange: [0, 1],
-          outputRange: ["0deg", "180deg"],
-        }),
-      },
-    ],
-  };
-
-  const backAnimatedStyle = {
-    transform: [
-      { translateX: position.x },
-      { rotate: rotation },
-      {
-        rotateY: flipAnimation.interpolate({
-          inputRange: [0, 1],
-          outputRange: ["180deg", "360deg"],
-        }),
-      },
-    ],
-  };
-
-  const [cardIndex, setCardIndex] = useState(0);
-
-  const handleSwipeRight = () => {
-    console.log("Swiped Right");
-    nextCard();
-  };
-
-  const handleSwipeLeft = () => {
-    console.log("Swiped Left");
-    nextCard();
-  };
-
-  const nextCard = () => {
-    setCardIndex((prevIndex) =>
-      prevIndex + 1 < cards1.length ? prevIndex + 1 : 0
-    );
-  };
-  const markCard = (remembered: boolean): void => {
-    if (remembered) {
-      setCompleted([...completed, cards[currentIndex].id]);
-    }
-
-    if (currentIndex < cards.length - 1) {
-      swipeCard("left");
-    } else {
-      const score = remembered ? completed.length + 1 : completed.length;
-      Alert.alert(
-        "Session Complete!",
-        `You remembered ${score} out of ${cards.length} cards.`,
-        [{ text: "Restart", onPress: resetSession }]
-      );
-    }
-  };
-
-  const resetSession = (): void => {
-    setCurrentIndex(0);
-    setCompleted([]);
-    setIsFlipped(false);
-    flipAnimation.setValue(0);
-    position.setValue({ x: 0, y: 0 });
-  };
-
-  const renderCardContent = (): React.ReactNode => {
-    if (currentIndex >= cards.length) {
-      return (
-        <View style={[styles.card, styles.endCard]}>
-          <Text style={styles.endCardText}>All Cards Completed!</Text>
-          <TouchableOpacity style={styles.restartButton} onPress={resetSession}>
-            <Text style={styles.restartButtonText}>Restart</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
-
-    return (
-      <TouchableOpacity
-        activeOpacity={0.9}
-        onPress={flipCard}
-        style={styles.cardWrapper}
-        {...panResponder.panHandlers}
-      >
-        {/* Front of card */}
-        <Animated.View
-          style={[
-            styles.card,
-            styles.frontCard,
-            frontAnimatedStyle,
-            {
-              opacity: flipAnimation.interpolate({
-                inputRange: [0.5, 1],
-                outputRange: [1, 0],
-                extrapolate: "clamp",
-              }),
-            },
-          ]}
-        >
-          <Text style={styles.cardQuestion}>
-            {cards[currentIndex].question}
-          </Text>
-          <Text style={styles.tapHint}>Tap to flip</Text>
-          <View style={styles.swipeIndicators}>
-            <View style={styles.swipeLeftIndicator}>
-              <Text style={styles.swipeIndicatorText}>←</Text>
-            </View>
-            <View style={styles.swipeRightIndicator}>
-              <Text style={styles.swipeIndicatorText}>→</Text>
-            </View>
-          </View>
-        </Animated.View>
-
-        {/* Back of card */}
-        <Animated.View
-          style={[
-            styles.card,
-            styles.backCard,
-            backAnimatedStyle,
-            {
-              opacity: flipAnimation.interpolate({
-                inputRange: [0, 0.5],
-                outputRange: [0, 1],
-                extrapolate: "clamp",
-              }),
-            },
-          ]}
-        >
-          <Text style={styles.cardAnswer}>{cards[currentIndex].answer}</Text>
-          <Text style={styles.tapHint}>Tap to flip back</Text>
-          <View style={styles.swipeIndicators}>
-            <View style={styles.swipeLeftIndicator}>
-              <Text style={styles.swipeIndicatorText}>←</Text>
-            </View>
-            <View style={styles.swipeRightIndicator}>
-              <Text style={styles.swipeIndicatorText}>→</Text>
-            </View>
-          </View>
-        </Animated.View>
-      </TouchableOpacity>
-    );
-  };
+  const ctaTitle =
+    due > 0 ? t('startSession', { n: session.length }) : session.length > 0 ? t('startSessionNew', { n: session.length }) : t('practiceAhead');
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" />
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.header}>
+          <View>
+            <Text style={[styles.greeting, { color: theme.textMuted }]}>{greeting}</Text>
+            <Text style={[styles.title, { color: theme.text }]}>{t('todayTitle')}</Text>
+          </View>
+          <View style={[styles.streak, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Text style={styles.streakFlame}>{streak > 0 ? '🔥' : '🌤️'}</Text>
+            <Text style={[styles.streakText, { color: theme.text }]}>{streak > 0 ? t('streakDays', { n: streak }) : t('streakNone')}</Text>
+          </View>
+        </View>
 
-      <View style={styles.header}>
-        <Text style={styles.headerText}>Flashcards</Text>
-        <Text style={styles.progress}>
-          {currentIndex + 1} / {cards.length}
-        </Text>
-      </View>
+        {/* Hero: today's session */}
+        <LinearGradient colors={[theme.cardBack, theme.cardBackAlt]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
+          <View style={styles.heroRow}>
+            <View style={styles.grow}>
+              <Text style={styles.heroLabel}>{t('gardenHealth')}</Text>
+              <Text style={styles.heroBig}>{formatPercent(garden.health)}</Text>
+              <Text style={styles.heroSub}>
+                {t('thirstyCount', { n: garden.thirsty })} · {t('growingCount', { n: garden.growing })} · {t('bloomingCount', { n: garden.blooming })}
+              </Text>
+            </View>
+            <Text style={styles.heroEmoji}>{garden.thirsty > 0 ? '🥀' : garden.blooming > 0 ? '🌸' : '🌱'}</Text>
+          </View>
+          <View style={styles.goalRow}>
+            <View style={styles.goalTrack}>
+              <View style={[styles.goalFill, { width: `${Math.round(goalPct * 100)}%` }]} />
+            </View>
+            <Text style={styles.goalText}>{t('goalProgress', { done: today.reviews, goal: settings.dailyGoal })}</Text>
+          </View>
+          {session.length > 0 ? (
+            <Button title={ctaTitle} onPress={() => router.push('/study')} textColor={theme.primaryDark} style={[styles.cta, { backgroundColor: '#fff', borderColor: '#fff' }]} />
+          ) : (
+            <View style={styles.caughtUp}>
+              <Text style={styles.caughtUpTitle}>{t('allCaughtUp')}</Text>
+              <Text style={styles.caughtUpBody}>
+                {t('allCaughtUpBody', { when: next ? formatRelative(t, next, now) : '—' })}
+              </Text>
+              {cards.length ? (
+                <Button title={t('practiceAhead')} onPress={() => router.push('/study?cram=1')} textColor="#fff" style={[styles.cta, { backgroundColor: 'rgba(255,255,255,0.18)', borderColor: 'rgba(255,255,255,0.4)' }]} />
+              ) : null}
+            </View>
+          )}
+        </LinearGradient>
 
-      <View style={styles.instructions}>
-        <Text style={styles.instructionText}>
-          Swipe left for next card, right for previous
-        </Text>
-      </View>
+        {/* Week strip */}
+        <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <View style={styles.weekRow}>
+            {week.map((d, i) => {
+              const active = d.log.reviews > 0;
+              const goal = d.log.reviews >= settings.dailyGoal;
+              const label = new Date(`${d.key}T00:00:00`).toLocaleDateString(undefined, { weekday: 'narrow' });
+              return (
+                <View key={d.key} style={styles.weekDay}>
+                  <View
+                    style={[
+                      styles.weekDot,
+                      {
+                        backgroundColor: goal ? theme.gardenDeep : active ? theme.garden : theme.surfaceAlt,
+                        borderColor: i === week.length - 1 ? theme.primary : 'transparent',
+                      },
+                    ]}
+                  >
+                    {active ? <Text style={styles.weekDotText}>{goal ? '🌸' : '🌱'}</Text> : null}
+                  </View>
+                  <Text style={[styles.weekLabel, { color: theme.textMuted }]}>{label}</Text>
+                </View>
+              );
+            })}
+          </View>
+        </View>
 
-      {/* <View style={styles.cardContainer}>{renderCardContent()}</View> */}
-      <View style={styles.cardContainer}>
-        {cardIndex < cards1.length ? (
-          <SwipeCard
-            text={cards1[cardIndex]}
-            onSwipeRight={handleSwipeRight}
-            onSwipeLeft={handleSwipeLeft}
-          />
+        {/* Thirsty plants */}
+        {thirstyPlants.length ? (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('weakestCards')}</Text>
+              <Pressable onPress={() => router.push('/cards')} accessibilityRole="button">
+                <Text style={[styles.link, { color: theme.primary }]}>{t('openGarden')} ›</Text>
+              </Pressable>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.plantRow}>
+              {thirstyPlants.map(({ c }) => (
+                <PlantTile key={c.id} card={c} now={now} size={104} onPress={() => router.push('/cards')} />
+              ))}
+            </ScrollView>
+          </View>
         ) : null}
-      </View>
 
-      <View style={styles.buttonsContainer}>
-        <TouchableOpacity
-          style={[styles.button, styles.forgotButton]}
-          onPress={() => markCard(false)}
-        >
-          <Text style={styles.buttonText}>Didn't know</Text>
-        </TouchableOpacity>
+        {/* Quick actions */}
+        <View style={styles.quickRow}>
+          <QuickAction icon="add" label={t('quickAdd')} onPress={() => setFormOpen(true)} />
+          <QuickAction icon="local-florist" label={t('openGarden')} onPress={() => router.push('/cards')} />
+          <QuickAction icon="fast-forward" label={t('practiceAhead')} onPress={() => router.push('/study?cram=1')} disabled={cards.length === 0} />
+        </View>
 
-        <TouchableOpacity
-          style={[styles.button, styles.knewButton]}
-          onPress={() => markCard(true)}
-        >
-          <Text style={styles.buttonText}>Got it!</Text>
-        </TouchableOpacity>
-      </View>
+        {fresh > 0 || due > 0 ? (
+          <Text style={[styles.footnote, { color: theme.textMuted }]}>
+            {t('dueNow')}: {due} · {t('newCards')}: {fresh} · {t('seedsCount', { n: garden.seeds })}
+          </Text>
+        ) : null}
+      </ScrollView>
+      <CardForm visible={formOpen} card={null} onClose={() => setFormOpen(false)} />
     </SafeAreaView>
   );
-};
+}
+
+function QuickAction({ icon, label, onPress, disabled }: { icon: React.ComponentProps<typeof MaterialIcons>['name']; label: string; onPress: () => void; disabled?: boolean }) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      style={({ pressed }) => [styles.quick, { backgroundColor: theme.surface, borderColor: theme.border, opacity: disabled ? 0.5 : pressed ? 0.8 : 1 }]}
+    >
+      <View style={[styles.quickIcon, { backgroundColor: theme.surfaceAlt }]}>
+        <MaterialIcons name={icon} size={22} color={theme.primary} />
+      </View>
+      <Text style={[styles.quickLabel, { color: theme.text }]} numberOfLines={2}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-  },
-  header: {
-    padding: 20,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  headerText: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  progress: {
-    fontSize: 16,
-    color: "#666",
-    fontWeight: "500",
-  },
-  instructions: {
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  instructionText: {
-    fontSize: 14,
-    color: "#666",
-  },
-  cardContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    marginHorizontal: 20,
-  },
-  cardWrapper: {
-    width: width - 60,
-    height: 300,
-  },
-  card: {
-    width: "100%",
-    height: "100%",
-    borderRadius: 12,
-    padding: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    backfaceVisibility: "hidden",
-  },
-  frontCard: {
-    backgroundColor: "#fff",
-    borderColor: "#2196F3",
-    borderWidth: 2,
-  },
-  backCard: {
-    backgroundColor: "#2196F3",
-    position: "absolute",
-    top: 0,
-  },
-  cardQuestion: {
-    fontSize: 22,
-    fontWeight: "bold",
-    textAlign: "center",
-    color: "#333",
-  },
-  cardAnswer: {
-    fontSize: 22,
-    fontWeight: "bold",
-    textAlign: "center",
-    color: "#fff",
-  },
-  tapHint: {
-    position: "absolute",
-    bottom: 20,
-    fontSize: 14,
-    color: "#999",
-  },
-  swipeIndicators: {
-    position: "absolute",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    width: "100%",
-    paddingHorizontal: 10,
-  },
-  swipeLeftIndicator: {
-    opacity: 0.3,
-  },
-  swipeRightIndicator: {
-    opacity: 0.3,
-  },
-  swipeIndicatorText: {
-    fontSize: 24,
-    fontWeight: "bold",
-  },
-  endCard: {
-    backgroundColor: "#f0f0f0",
-    borderColor: "#ccc",
-    borderWidth: 2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  endCardText: {
-    fontSize: 22,
-    fontWeight: "bold",
-    marginBottom: 20,
-    color: "#333",
-  },
-  restartButton: {
-    backgroundColor: "#2196F3",
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-  },
-  restartButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-  buttonsContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    padding: 20,
-  },
-  button: {
-    padding: 15,
-    borderRadius: 8,
-    width: "48%",
-    alignItems: "center",
-  },
-  forgotButton: {
-    backgroundColor: "#ff6b6b",
-  },
-  knewButton: {
-    backgroundColor: "#4caf50",
-  },
-  buttonText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 16,
-  },
+  container: { flex: 1 },
+  content: { padding: 20, gap: 16, paddingBottom: 40, maxWidth: 640, width: '100%', alignSelf: 'center' },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12 },
+  greeting: { fontSize: 14 },
+  title: { fontSize: 32, fontWeight: '800', letterSpacing: -0.5 },
+  streak: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
+  streakFlame: { fontSize: 16 },
+  streakText: { fontSize: 13, fontWeight: '700' },
+  hero: { borderRadius: 28, padding: 22, gap: 16 },
+  heroRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  grow: { flex: 1 },
+  heroLabel: { color: 'rgba(255,255,255,0.75)', fontSize: 12, letterSpacing: 1.2, textTransform: 'uppercase' },
+  heroBig: { color: '#fff', fontSize: 44, fontWeight: '800', letterSpacing: -1, lineHeight: 50 },
+  heroSub: { color: 'rgba(255,255,255,0.85)', fontSize: 13 },
+  heroEmoji: { fontSize: 56 },
+  goalRow: { gap: 6 },
+  goalTrack: { height: 8, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.25)', overflow: 'hidden' },
+  goalFill: { height: 8, borderRadius: 4, backgroundColor: '#fff' },
+  goalText: { color: 'rgba(255,255,255,0.85)', fontSize: 12 },
+  cta: { marginTop: 2 },
+  caughtUp: { gap: 6 },
+  caughtUpTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
+  caughtUpBody: { color: 'rgba(255,255,255,0.85)', fontSize: 13, marginBottom: 6 },
+  card: { borderWidth: 1, borderRadius: 20, padding: 14 },
+  weekRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  weekDay: { alignItems: 'center', gap: 4 },
+  weekDot: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: 2 },
+  weekDotText: { fontSize: 16 },
+  weekLabel: { fontSize: 11 },
+  section: { gap: 10 },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  sectionTitle: { fontSize: 17, fontWeight: '700' },
+  link: { fontSize: 14, fontWeight: '600' },
+  plantRow: { gap: 10, paddingVertical: 2 },
+  quickRow: { flexDirection: 'row', gap: 10 },
+  quick: { flex: 1, borderWidth: 1, borderRadius: 18, padding: 12, alignItems: 'center', gap: 8 },
+  quickIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  quickLabel: { fontSize: 12, fontWeight: '600', textAlign: 'center' },
+  footnote: { fontSize: 12, textAlign: 'center' },
 });
-
-export default App;
