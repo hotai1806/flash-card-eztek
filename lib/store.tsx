@@ -12,12 +12,15 @@ import React, {
 import { SEED_WORDS } from '@/constants/seedCards';
 import { imageUrlForCard } from './images';
 import { newReviewState, schedule } from './srs';
-import type { Card, Grade, Lang, Settings } from './types';
+import { recordReview } from './stats';
+import { ALL_MODES, type Card, type Grade, type Lang, type ReviewLog, type Settings } from './types';
 
 const SETTINGS_KEY = 'flashcards.settings.v1';
 const CARDS_KEY = 'flashcards.cards.v1';
+const LOG_KEY = 'flashcards.log.v1';
 
 export const DEFAULT_SETTINGS: Settings = {
+  onboarded: false,
   uiLang: 'en',
   learningLang: 'en',
   mainLang: 'zh',
@@ -25,6 +28,9 @@ export const DEFAULT_SETTINGS: Settings = {
   imageProvider: 'ai',
   autoTranslate: true,
   newCardsPerSession: 10,
+  practiceModes: ['recognition', 'recall', 'listening'],
+  dailyGoal: 20,
+  speechEnabled: true,
 };
 
 export type NewCardInput = {
@@ -39,6 +45,7 @@ interface StoreValue {
   ready: boolean;
   settings: Settings;
   cards: Card[];
+  log: ReviewLog;
   updateSettings: (patch: Partial<Settings>) => void;
   addCard: (input: NewCardInput) => Card;
   addCards: (inputs: NewCardInput[]) => Card[];
@@ -48,7 +55,7 @@ interface StoreValue {
   resetProgress: () => void;
   deleteAllCards: () => void;
   /** Adds the built-in sample words for the current language pair. Returns how many were added. */
-  loadSamples: () => number;
+  loadSamples: (learningLang?: Lang) => number;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -59,7 +66,14 @@ export function makeId(): string {
 
 function normalizeSettings(raw: unknown): Settings {
   if (!raw || typeof raw !== 'object') return DEFAULT_SETTINGS;
-  return { ...DEFAULT_SETTINGS, ...(raw as Partial<Settings>) };
+  const merged = { ...DEFAULT_SETTINGS, ...(raw as Partial<Settings>) };
+  const modes = Array.isArray(merged.practiceModes)
+    ? merged.practiceModes.filter((m) => ALL_MODES.includes(m))
+    : [];
+  merged.practiceModes = modes.length ? modes : DEFAULT_SETTINGS.practiceModes;
+  // Users who saved settings before onboarding existed have clearly used the app.
+  if (typeof (raw as Partial<Settings>).onboarded !== 'boolean') merged.onboarded = true;
+  return merged;
 }
 
 function normalizeCards(raw: unknown): Card[] {
@@ -74,10 +88,16 @@ function normalizeCards(raw: unknown): Card[] {
     }));
 }
 
+function normalizeLog(raw: unknown): ReviewLog {
+  if (!raw || typeof raw !== 'object') return {};
+  return raw as ReviewLog;
+}
+
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [cards, setCards] = useState<Card[]>([]);
+  const [log, setLog] = useState<ReviewLog>({});
   const loadedRef = useRef(false);
 
   // Load persisted state once.
@@ -85,10 +105,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     (async () => {
       try {
-        const [s, c] = await AsyncStorage.multiGet([SETTINGS_KEY, CARDS_KEY]);
+        const [s, c, l] = await AsyncStorage.multiGet([SETTINGS_KEY, CARDS_KEY, LOG_KEY]);
         if (cancelled) return;
         if (s[1]) setSettings(normalizeSettings(JSON.parse(s[1])));
         if (c[1]) setCards(normalizeCards(JSON.parse(c[1])));
+        if (l[1]) setLog(normalizeLog(JSON.parse(l[1])));
       } catch (e) {
         console.warn('Failed to load saved data', e);
       } finally {
@@ -117,6 +138,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       console.warn('Failed to save cards', e)
     );
   }, [cards]);
+
+  useEffect(() => {
+    if (!loadedRef.current) return;
+    AsyncStorage.setItem(LOG_KEY, JSON.stringify(log)).catch((e) => console.warn('Failed to save log', e));
+  }, [log]);
 
   const updateSettings = useCallback((patch: Partial<Settings>) => {
     setSettings((prev) => ({ ...prev, ...patch }));
@@ -160,40 +186,47 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setCards((prev) =>
       prev.map((c) => (c.id === id ? { ...c, review: schedule(c.review, grade, now) } : c))
     );
+    setLog((prev) => recordReview(prev, grade !== 'again', now));
   }, []);
 
   const resetProgress = useCallback(() => {
     const now = Date.now();
     setCards((prev) => prev.map((c) => ({ ...c, review: newReviewState(now) })));
+    setLog({});
   }, []);
 
   const deleteAllCards = useCallback(() => setCards([]), []);
 
-  const loadSamples = useCallback(() => {
-    const { learningLang, imageProvider, autoImage } = settings;
-    const existing = new Set(
-      cards.filter((c) => c.lang === learningLang).map((c) => c.word.toLowerCase())
-    );
-    const inputs: NewCardInput[] = SEED_WORDS.filter(
-      (w) => !existing.has(w[learningLang].toLowerCase())
-    ).map((w) => {
-      const translations: Partial<Record<Lang, string>> = { ...w };
-      delete translations[learningLang];
-      const base = { word: w[learningLang], lang: learningLang, translations };
-      return {
-        ...base,
-        imageUrl: autoImage ? imageUrlForCard(imageProvider, base) : null,
-      };
-    });
-    if (inputs.length) addCards(inputs);
-    return inputs.length;
-  }, [settings, cards, addCards]);
+  const loadSamples = useCallback(
+    (learningLangOverride?: Lang) => {
+      const { imageProvider, autoImage } = settings;
+      const learningLang = learningLangOverride ?? settings.learningLang;
+      const existing = new Set(
+        cards.filter((c) => c.lang === learningLang).map((c) => c.word.toLowerCase())
+      );
+      const inputs: NewCardInput[] = SEED_WORDS.filter(
+        (w) => !existing.has(w[learningLang].toLowerCase())
+      ).map((w) => {
+        const translations: Partial<Record<Lang, string>> = { ...w };
+        delete translations[learningLang];
+        const base = { word: w[learningLang], lang: learningLang, translations };
+        return {
+          ...base,
+          imageUrl: autoImage ? imageUrlForCard(imageProvider, base) : null,
+        };
+      });
+      if (inputs.length) addCards(inputs);
+      return inputs.length;
+    },
+    [settings, cards, addCards]
+  );
 
   const value = useMemo<StoreValue>(
     () => ({
       ready,
       settings,
       cards,
+      log,
       updateSettings,
       addCard,
       addCards,
@@ -208,6 +241,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       ready,
       settings,
       cards,
+      log,
       updateSettings,
       addCard,
       addCards,

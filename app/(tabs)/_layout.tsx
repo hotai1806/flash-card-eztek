@@ -1,4 +1,4 @@
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 import React from 'react';
 import { Platform } from 'react-native';
 
@@ -8,15 +8,23 @@ import TabBarBackground from '@/components/ui/TabBarBackground';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useI18n } from '@/lib/i18n';
+import { useStore } from '@/lib/store';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const { t } = useI18n();
+  const { settings } = useStore();
+  const palette = Colors[colorScheme ?? 'light'];
+
+  if (!settings.onboarded) {
+    return <Redirect href="/onboarding" />;
+  }
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
+        tabBarActiveTintColor: palette.tabIconSelected,
+        tabBarInactiveTintColor: palette.tabIconDefault,
         headerShown: false,
         tabBarButton: HapticTab,
         tabBarBackground: TabBarBackground,
@@ -25,22 +33,22 @@ export default function TabLayout() {
             // Use a transparent background on iOS to show the blur effect
             position: 'absolute',
           },
-          default: {},
+          default: { backgroundColor: palette.surface, borderTopColor: palette.border },
         }),
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: t('tabStudy'),
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="rectangle.stack.fill" color={color} />,
+          title: t('todayTitle'),
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="cards"
         options={{
-          title: t('tabCards'),
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="book.fill" color={color} />,
+          title: t('gardenTitle'),
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="leaf.fill" color={color} />,
         }}
       />
       <Tabs.Screen

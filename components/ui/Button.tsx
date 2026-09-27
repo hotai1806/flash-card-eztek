@@ -14,6 +14,8 @@ interface ButtonProps {
   small?: boolean;
   style?: StyleProp<ViewStyle>;
   subtitle?: string;
+  /** Override the label colour (e.g. a white button on a coloured surface). */
+  textColor?: string;
 }
 
 export function Button({
@@ -25,6 +27,7 @@ export function Button({
   small,
   style,
   subtitle,
+  textColor,
 }: ButtonProps) {
   const theme = useTheme();
 
@@ -36,7 +39,7 @@ export function Button({
         : variant === 'secondary'
           ? theme.surface
           : 'transparent';
-  const fg = variant === 'primary' || variant === 'danger' ? theme.onPrimary : theme.primary;
+  const fg = textColor ?? (variant === 'primary' || variant === 'danger' ? theme.onPrimary : theme.primary);
   const border = variant === 'secondary' ? theme.border : bg;
 
   return (

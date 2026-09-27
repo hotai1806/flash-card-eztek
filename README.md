@@ -1,7 +1,27 @@
-# Flashcards
+# Flashcards · Memory Garden
 
-Picture flashcards with spaced repetition. One code base runs on iOS, Android and
-the web (installable as a PWA). Built with [Expo](https://expo.dev) and Expo Router.
+Picture flashcards with spaced repetition, where every word you learn is a plant
+that grows when you review it and wilts when the forgetting curve says you are
+about to lose it. One code base runs on iOS, Android and the web (installable as
+a PWA). Built with [Expo](https://expo.dev) and Expo Router.
+
+## What makes it different
+
+- **Memory Garden.** The deck is a garden. Growth stage (seed → sprout → sapling →
+  tree → bloom) follows the scheduled review interval; droop and fading follow the
+  estimated retention from the forgetting curve. A water drop marks words that are
+  due. Reviewing is "watering". The home screen shows garden health, the thirstiest
+  plants and a daily goal; sessions end with the words you watered and how they grew.
+- **Three ways to practise, mixed automatically.** *Recognise* (word + picture →
+  meaning), *Recall* (picture + meaning → produce the word yourself) and *Listen*
+  (hear the word first, then reveal). Recall and listening are much stronger
+  memory tests than recognition alone. New words always start in recognise mode.
+- **Pronunciation on every card** through the device's text-to-speech (English,
+  Chinese, Vietnamese), including on the web.
+- **Streaks and a daily goal**, with a 7-day strip on the home screen and a 14-day
+  history in Stats.
+- **Guided first run** that asks what you are learning, what you speak and how you
+  want to practise, then plants a 30-word starter garden.
 
 ## Features
 
@@ -38,16 +58,22 @@ the web (installable as a PWA). Built with [Expo](https://expo.dev) and Expo Rou
 app/
   _layout.tsx          providers (store, i18n, theme) and service worker registration
   +html.tsx            web root HTML: PWA manifest, theme colour, mobile meta tags
-  (tabs)/index.tsx     Study screen (session queue, flip / swipe, grading)
-  (tabs)/cards.tsx     Card list, add / edit / delete, sample deck
-  (tabs)/stats.tsx     Progress and forgetting-curve stats
-  (tabs)/settings.tsx  Languages, picture provider, session size, reset
+  onboarding.tsx       first-run setup (languages, practice modes, starter garden)
+  study.tsx            full-screen study session (modes, flip / swipe, grading, summary)
+  (tabs)/index.tsx     Today: garden health, daily goal, streak, thirsty plants
+  (tabs)/cards.tsx     Garden grid + list view, add / edit / delete, search
+  (tabs)/stats.tsx     14-day activity, streaks, garden counts, cards most at risk
+  (tabs)/settings.tsx  Languages, practice modes, speech, daily goal, pictures, reset
 components/
-  FlashCard.tsx        the flip + swipe card
+  FlashCard.tsx        the flip + swipe card (recognise / recall / listen fronts)
+  PlantTile.tsx        one plant in the garden
   CardForm.tsx         add / edit modal with auto translate and auto picture
 lib/
   srs.ts               SM-2 scheduling, retention estimate, session builder
-  store.tsx            persisted app state (cards + settings)
+  garden.ts            plant stage, wilt and garden summary from review state
+  stats.ts             daily review log, streaks
+  speech.ts            text-to-speech helper
+  store.tsx            persisted app state (cards, settings, review log)
   i18n/                UI dictionaries (en, zh, vi) and the `useI18n` hook
   images.ts            picture URL builders
   translate.ts         auto translation client

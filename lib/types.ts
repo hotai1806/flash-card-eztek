@@ -7,11 +7,18 @@ export type Lang = 'en' | 'zh' | 'vi';
 
 export const ALL_LANGS: Lang[] = ['en', 'zh', 'vi'];
 
-/**
- * Languages the user interface itself is translated into.
- * Vietnamese UI strings are wired up but can be refined later; see lib/i18n.
- */
+/** Languages the user interface itself is translated into. */
 export const UI_LANGS: Lang[] = ['en', 'zh', 'vi'];
+
+/**
+ * How a card is practised in a session.
+ *  - recognition: word + picture on the front, meaning on the back
+ *  - recall:      picture + meaning on the front, produce the word yourself
+ *  - listening:   hear the word, then reveal the card
+ */
+export type PracticeMode = 'recognition' | 'recall' | 'listening';
+
+export const ALL_MODES: PracticeMode[] = ['recognition', 'recall', 'listening'];
 
 /** Per-card spaced-repetition state (SM-2 style). */
 export interface ReviewState {
@@ -48,6 +55,8 @@ export interface Card {
 }
 
 export interface Settings {
+  /** Whether the first-run setup has been completed. */
+  onboarded: boolean;
   /** Language the UI is displayed in. */
   uiLang: Lang;
   /** Language the user is learning (front of card). */
@@ -62,6 +71,21 @@ export interface Settings {
   autoTranslate: boolean;
   /** Max new cards introduced per study session. */
   newCardsPerSession: number;
+  /** Practice modes that sessions draw from (at least one). */
+  practiceModes: PracticeMode[];
+  /** Reviews per day the user is aiming for. */
+  dailyGoal: number;
+  /** Read words aloud with text-to-speech. */
+  speechEnabled: boolean;
 }
 
 export type Grade = 'again' | 'hard' | 'good' | 'easy';
+
+/** One day's activity, keyed by local date "YYYY-MM-DD" in ReviewLog. */
+export interface DayLog {
+  reviews: number;
+  /** Reviews graded hard/good/easy. */
+  remembered: number;
+}
+
+export type ReviewLog = Record<string, DayLog>;
