@@ -63,9 +63,12 @@ components/
 content/
   sections.ts            new: THE content file (3 sample sections)
 lib/
-  sections.ts            new: types, tile geometry, lookup, validation (no React)
+  sections.ts            new: types, tile geometry, lookup, counts, validation (no React)
   study.ts               new: study queue reducer (no React)
-  progress.ts            new: progress store factory + AsyncStorage adapter (no React)
+  progress.ts            new: Progress type, ProgressStorage interface, createProgressStore
+                         (pure, no imports at all)
+  progressStore.ts       new: AsyncStorage adapter + the progressStore singleton
+                         (the only file that imports AsyncStorage)
 hooks/
   useRevealed.ts         new: useSyncExternalStore binding to the progress store
 assets/sections/
@@ -84,24 +87,32 @@ and `package-lock.json` (AsyncStorage, `test:ci` script), `README.md` (editing g
 
 **Section list (`app/index.tsx`).** A FlatList of rows. Each row: a `JigsawGrid`
 thumbnail (width 110) showing the learner's revealed tiles, the section name, "k / n
-learned", and a "Complete" badge when `isSectionDone`. Each row is a
+learned" where `k = countLearned(section, revealed)` and `n = section.words.length`, and
+a "Complete" badge when `isSectionDone`. Each row is a
 `<Link href={{ pathname: '/study/[sectionId]', params: { sectionId } }} asChild>` around
 a Pressable. Because progress is read through `useSyncExternalStore`, the list
 re-renders on return from the study screen with no focus effect. Fallback if typed
 routes reject the object form: the template-string href.
 
-**Study screen (`app/study/[sectionId].tsx`).** Reads `sectionId` with
-`useLocalSearchParams`, looks the section up with `findSection`. Unknown id renders a
-"Section not found" view with a Link home (same pattern as `+not-found.tsx`). Sets the
-native header title with `<Stack.Screen options={{ title: section.name }} />` so Back is
-always visible. Layout, top to bottom: mini `JigsawGrid` (width
-`min(screenWidth - 40, 200)`), "k / n learned", a fixed-height card container (360)
-holding `SwipeCard` + `WordCard`, then the two buttons. When the queue is empty the card
-container and buttons are replaced by the completion view (section 7).
+**Study screen (`app/study/[sectionId].tsx`).** Two components in one file. The route
+component reads `sectionId` with `useLocalSearchParams` and looks the section up with
+`findSection`; an unknown id renders a "Section not found" view with a Link home (same
+pattern as `+not-found.tsx`), otherwise it renders `<StudySession section={section} />`.
+`StudySession` owns every hook (`useRevealed`, `useReducer`, the card ref), so no hook
+sits behind that early return. It sets the native header title with
+`<Stack.Screen options={{ title: section.name }} />` so Back is always visible. Body,
+top to bottom: mini `JigsawGrid` (width `min(screenWidth - 40, 200)`), "k / n learned"
+(same definition as the list), a fixed-height card container (360) holding
+`SwipeCard` + `WordCard`, then the two buttons. When the queue is empty the whole body
+(mini grid, counter, card container, buttons) is replaced by the completion view
+(section 7).
 
 ### Root layout
 
-Keeps font loading, `ThemeProvider`, and `StatusBar` exactly as now. Adds a `ready`
+Keeps font loading, `ThemeProvider`, and `StatusBar` exactly as now. The Stack declares
+`<Stack.Screen name="index" options={{ title: 'Sections' }} />`,
+`<Stack.Screen name="study/[sectionId]" />` (title set by the screen itself) and
+`+not-found`. Adds a `ready`
 state set when `progressStore.hydrate()` settles; the splash hides and the Stack renders
 only when `loaded && ready` (the existing `return null` gate). At module scope, under
 `__DEV__`, runs `validateSections(SECTIONS)` and throws one `Error` whose message joins
@@ -138,7 +149,8 @@ export type TileRect = { row: number; col: number; x: number; y: number; w: numb
 export function tileOf(index: number, cols: number): { row: number; col: number };
 export function tileRect(index: number, cols: number, rows: number, gridW: number): TileRect;
 export function findSection(sections: readonly Section[], id: string): Section | undefined;
-export function isSectionDone(section: Section, revealed: readonly string[]): boolean;
+export function countLearned(section: Section, revealed: readonly string[]): number;  // words whose id is in revealed
+export function isSectionDone(section: Section, revealed: readonly string[]): boolean; // countLearned === words.length
 export function validateSections(sections: readonly Section[]): string[]; // [] = ok
 ```
 
@@ -151,24 +163,28 @@ strict TypeScript flags shape errors in the editor. The `@/assets/...` require f
 already used by the starter code and resolves through Metro and jest-expo. A comment
 header states the editing rules:
 
-1. `words.length` must equal `cols * rows`. Practical word counts are therefore 6, 8, 9,
-   10, 12; a 7-word section is not possible.
+1. `words.length` must equal `cols * rows`. Any `cols × rows` with both ≥ 1 is accepted;
+   with 2 to 4 columns the practical word counts are 4, 6, 8, 9, 10, 12, and a prime
+   count such as 7 only works as a 7×1 strip.
 2. Word order is tile order: top-left first, reading order.
 3. The picture must have the same shape as the grid (width / height = cols / rows), for
    example 900×900 for 3×3, 1200×600 for 4×2. The image is drawn with
    `resizeMode="stretch"`, so a mismatched shape distorts rather than misaligns.
-4. Word and section ids are unique and never renamed; renaming forgets that word's
-   progress.
+4. Word and section ids are unique, non-empty, and never renamed; renaming forgets that
+   word's progress. Section ids are lowercase and match the PNG file name (`kitchen`,
+   `beach`, `classroom`). Word ids are the lowercase English word (`fork`, `backpack`).
 
 **Validation rules** (`validateSections`, messages in plain English with the section
 name and field): section ids unique and non-empty; `cols` and `rows` integers ≥ 1;
 `words.length === cols * rows` ("Section 'Beach' has 5 words but a 3×2 grid needs 6");
-word ids unique within a section; `name`, `word`, `meaning`, `sentence` non-empty;
+word ids unique and non-empty within a section; `name`, `word`, `meaning`, `sentence`
+non-empty;
 `image` truthy. Enforced twice: a Jest test asserts `validateSections(SECTIONS)` is
 empty, and the root layout throws in development.
 
-**Sample content.** Emoji are used only by the placeholder-art script, not stored in
-the content file. Vietnamese meanings are common dictionary forms written by the
+**Sample content.** Section ids are `kitchen`, `beach`, `classroom`; word ids are the
+lowercase English word shown in the tables. Emoji are used only by the placeholder-art
+script, not stored in the content file. Vietnamese meanings are common dictionary forms written by the
 assistant, not a native speaker; the owner should review them (regional variants:
 thìa/muỗng, cốc/ly, ô/dù). Pronunciations are approximate IPA.
 
@@ -213,6 +229,14 @@ and scissors from my backpack, sat on my chair, spun the globe, and watched the 
 | 6 | ruler | cái thước | Draw a line with a ruler. | 📏 |
 | 7 | globe | quả địa cầu | Find Vietnam on the globe. | 🌍 |
 | 8 | scissors | cái kéo | Cut the paper with scissors. | ✂️ |
+
+**README editing guide.** `README.md` keeps the starter "Get started" steps (install,
+start) and replaces everything after them with two sections. "Editing content" lists the
+four rules above, how to add or replace a section (one entry in `content/sections.ts`
+plus one PNG in `assets/sections/`), the picture-shape rule and the swap-in-real-art steps
+from section 5, and the `python3 scripts/make-placeholder-art.py` command with its
+Python 3 + Pillow requirement. "Checks" names `npm run test:ci` and `npx tsc --noEmit`
+as the way to confirm a content edit is valid.
 
 ## 5. Tile rendering
 
@@ -268,8 +292,9 @@ code changes. Recommended ≤ 2000 px on the long side.
 
 `scripts/make-placeholder-art.py`, run by hand from the repo root with
 `python3 scripts/make-placeholder-art.py`; never part of the build. Requires Python 3
-and Pillow. It holds its own small table of the three sections (id, cols, rows, and the
-emoji per cell in tile order) and writes the three PNGs using a 300 px tile.
+and Pillow. It holds its own small table of the three sections (id, cols, rows, and one
+`(word, emoji)` pair per cell in tile order, kept in sync with `content/sections.ts` by
+hand) and writes the three PNGs using a 300 px tile.
 
 Per picture: a simple scene background made of two or three horizontal colour bands
 (kitchen: wall, counter, floor; beach: sky, sea, sand; classroom: wall, board, floor),
@@ -280,8 +305,8 @@ with `embedded_color=True`, onto a transparent sprite that is then resized. No w
 labels and no grid lines are drawn; covers supply the grid at runtime.
 
 Fallback: if the emoji font is missing or a glyph fails to render, that cell gets a
-pastel fill, a simple shape, and the English word in DejaVu Sans, so the script never
-fails on another machine. The generated PNGs are committed, so the app never depends on
+pastel fill, a centred circle at about 55 % of the cell, and the English word in DejaVu
+Sans, so the script never fails on another machine. The generated PNGs are committed, so the app never depends on
 Python.
 
 ## 7. Study flow
@@ -292,12 +317,22 @@ become `{ children, onSwipeLeft, onSwipeRight, onTap }`; the `text` and `id` pro
 spring back; `dx > 25 % of screen width` → animate off right, then `onSwipeRight()`;
 `dx < -25 %` → animate off left, then `onSwipeLeft()`; otherwise spring back. The 10 deg
 rotation interpolation, thresholds and durations stay. `position: 'absolute'` is removed
-(only one card is ever shown) so the parent's fixed-height container sizes it; the card
-is `SCREEN_WIDTH - 40` wide and 360 tall.
+(only one card is ever shown); the card stays `SCREEN_WIDTH - 40` wide and its height
+changes from 300 to 360 to match the fixed-height container. The
+`position.setValue({ x: 0, y: 0 })` reset that runs after the swipe callback is deleted:
+the keyed remount (below) makes it unnecessary, and it would snap the outgoing card back
+to centre before React unmounts it.
 
-**`components/WordCard.tsx`** props `{ section, word, index }`. Local `showBack` state
-and one `Animated.Value` for `scaleX`. Tap: timing `1 → 0` (120 ms, native driver), flip
-`showBack`, timing `0 → 1`. Front: `<Tile size={140} />` centred, the English word in
+**`components/WordCard.tsx`** is a `forwardRef` component with props
+`{ section, word, index }` that exposes `flip(): void` through `useImperativeHandle`.
+`StudySession` holds `cardRef` and renders
+`<SwipeCard key={state.step} onTap={() => cardRef.current?.flip()} ...>`
+`<WordCard ref={cardRef} ... /></SwipeCard>`. This is the only channel between the tap
+and the flip: SwipeCard's PanResponder claims every touch, so a Pressable inside the card
+would steal swipes. `showBack` stays local to WordCard with one `Animated.Value` for
+`scaleX`. `flip()`: timing `1 → 0` (120 ms, native driver), toggle `showBack`, timing
+`0 → 1`; a call while the animation is running is ignored. The keyed remount resets the
+face for every new presentation. Front: `<Tile size={140} />` centred, the English word in
 large text, "Tap to flip". Back: meaning (large), example in italics, pronunciation in
 SpaceMono, "Tap to flip back". No 3D rotation and no `backfaceVisibility`, so the flip
 behaves identically on iOS, Android and web.
@@ -344,34 +379,45 @@ Expo Go for SDK 52 (not launch-verified here; a development build definitely wor
 `Record<sectionId, revealedWordId[]>`. Nothing else. The version suffix lets a future
 schema start clean.
 
-**`lib/progress.ts`** (pure; the only file that imports AsyncStorage):
+**`lib/progress.ts`** (pure, no imports) and **`lib/progressStore.ts`** (the only file
+that imports AsyncStorage):
 
 ```ts
+// lib/progress.ts
 export type Progress = Record<string, string[]>;
 export interface ProgressStorage { load(): Promise<string | null>; save(raw: string): Promise<void>; }
 
 export function createProgressStore(storage: ProgressStorage): {
-  hydrate(): Promise<void>;                       // one load; failure leaves {}
-  getRevealed(sectionId: string): readonly string[]; // stable array or shared EMPTY
-  reveal(sectionId: string, wordId: string): void;   // idempotent; notifies; saves
-  resetSection(sectionId: string): void;             // removes the key; notifies; saves
+  hydrate(): Promise<void>;                          // one load; failure or bad JSON leaves {}
+  getRevealed(sectionId: string): readonly string[]; // stable array per section, or a shared EMPTY
+  reveal(sectionId: string, wordId: string): void;   // no-op if already revealed; else notify + save
+  resetSection(sectionId: string): void;             // no-op if no key; else remove, notify + save
   subscribe(listener: () => void): () => void;
 };
+
+// lib/progressStore.ts
 export const asyncStorageProgress: ProgressStorage;    // AsyncStorage getItem/setItem
 export const progressStore = createProgressStore(asyncStorageProgress);
 ```
 
-Writes are fire-and-forget; errors are swallowed (the data is tiny and the next write
-repeats it). Per-section arrays are kept referentially stable so `useSyncExternalStore`
-snapshots do not churn. The factory means tests use an in-memory `ProgressStorage` and
-never mock the native module.
+A `reveal` of an already revealed id, and a `resetSection` of a section with no stored
+key, is a no-op: no notification, no save, and the same array reference is kept. Writes
+are fire-and-forget; errors are swallowed (the data is tiny and the next write repeats
+it). Per-section arrays are kept referentially stable so `useSyncExternalStore`
+snapshots do not churn.
+
+The split is what keeps the tests honest: AsyncStorage 1.23.1 throws at import time
+under jest-expo because no native module is registered, so tests import only
+`lib/progress.ts` with an in-memory `ProgressStorage` and never load the adapter or mock
+the native module. The root layout, the study screen and the hook import
+`lib/progressStore.ts`.
 
 **`hooks/useRevealed.ts`**: `useRevealed(sectionId)` returns
 `useSyncExternalStore(progressStore.subscribe, () => progressStore.getRevealed(sectionId))`.
 
-Word ids that no longer exist in the content are simply never rendered: `isSectionDone`
-counts only current words, `initStudy` queues only current unrevealed words, and
-`JigsawGrid` only uncovers words it has. Editing content therefore never corrupts state.
+Word ids that no longer exist in the content are simply never rendered: `countLearned`
+and `isSectionDone` count only current words, `initStudy` queues only current unrevealed
+words, and `JigsawGrid` only uncovers words it has. Editing content therefore never corrupts state.
 
 ## 9. Error handling
 
@@ -396,22 +442,28 @@ Pure unit tests (no React Native rendering):
   `tileRect(7, 4, 2, 400)` → row 1, col 3, x 300, y 100, 100×100; `validateSections`
   reports word-count mismatch, duplicate word ids, duplicate section ids, zero rows;
   `validateSections(SECTIONS)` on the real content returns `[]` (jest-expo turns PNG
-  requires into `1`, so importing the content file is safe).
+  requires into `1`, so importing the content file is safe); `countLearned` ignores a
+  stale id that is not in the section and `isSectionDone` is false until every current
+  word is revealed.
 - `lib/__tests__/study-test.ts`: `initStudy` skips revealed words and keeps order;
   `right` drops the head and bumps `step`; `wrong` moves the head to the tail; `wrong`
   on a one-item queue keeps the queue and bumps `step`; `restart` replaces the queue;
   done when the queue is empty.
-- `lib/__tests__/progress-test.ts` with an in-memory `ProgressStorage`: `reveal` twice
-  is idempotent; `resetSection` removes the key; `hydrate` reads back what was saved;
-  malformed stored JSON yields `{}`; listeners fire once per change; `getRevealed`
-  returns the same array reference until the section changes.
+- `lib/__tests__/progress-test.ts` with an in-memory `ProgressStorage`: a second
+  `reveal` of the same id does not notify, save, or change the array reference;
+  `resetSection` removes the key and is a no-op when there is none; `hydrate` reads back
+  what was saved; malformed stored JSON yields `{}`; listeners fire once per change;
+  `getRevealed` returns the same array reference until that section changes.
 
 Render tests (react-test-renderer, like the existing ThemedText test):
 
 - `components/__tests__/Jigsaw-test.tsx`: `JigsawGrid` for a 3×2 section with 2
-  revealed renders exactly 4 nodes with `testID="cover"` at the positions `tileRect`
-  gives; `Tile` for index 4 of a 3×3 at size 100 has an Image style of width 300,
-  height 300, left -100, top -100.
+  revealed renders exactly 4 host nodes with `testID="cover"` at the positions
+  `tileRect` gives. Count host nodes only, for example
+  `root.findAll(n => typeof n.type === 'string' && n.props.testID === 'cover')`, because
+  the React Native Jest mock renders a composite plus a host node for every View. `Tile`
+  for index 4 of a 3×3 at size 100 has a host Image whose `StyleSheet.flatten(style)`
+  gives width 300, height 300, left -100, top -100.
 
 Manual checks before calling the work done: on a device or simulator and in
 `npm run web`: tap flips; a short drag springs back; a drag past a quarter of the width
