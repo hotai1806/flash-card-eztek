@@ -50,7 +50,9 @@ const SwipeCard: React.FC<SwipeCardProps> = ({
       toValue: { x, y: 0 },
       duration: SWIPE_OUT_DURATION,
       useNativeDriver: true,
-    }).start(() => {
+    }).start(({ finished }) => {
+      // An interrupted fly-off (card grabbed again, or unmounted) must not grade the word.
+      if (!finished) return;
       if (direction === "right" && onSwipeRight) onSwipeRight();
       if (direction === "left" && onSwipeLeft) onSwipeLeft();
     });
@@ -91,7 +93,8 @@ const SwipeCard: React.FC<SwipeCardProps> = ({
 const styles = StyleSheet.create({
   card: {
     width: SCREEN_WIDTH - 40,
-    height: 360,
+    flex: 1,
+    maxHeight: 360,
     backgroundColor: "#fff",
     borderRadius: 10,
     justifyContent: "center",

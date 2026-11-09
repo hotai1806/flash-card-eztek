@@ -30,18 +30,18 @@ it('initStudy with everything revealed yields an empty queue', () => {
 });
 
 it('right drops the head and bumps step', () => {
-  expect(studyReducer({ queue: ['a', 'b'], step: 3 }, { type: 'right' })).toEqual({ queue: ['b'], step: 4 });
+  expect(studyReducer({ queue: ['a', 'b'], step: 3 }, { type: 'right', id: 'a' })).toEqual({ queue: ['b'], step: 4 });
 });
 
 it('wrong moves the head to the tail and bumps step', () => {
-  expect(studyReducer({ queue: ['a', 'b', 'c'], step: 0 }, { type: 'wrong' })).toEqual({
+  expect(studyReducer({ queue: ['a', 'b', 'c'], step: 0 }, { type: 'wrong', id: 'a' })).toEqual({
     queue: ['b', 'c', 'a'],
     step: 1,
   });
 });
 
 it('wrong on a one-item queue keeps the queue and bumps step', () => {
-  expect(studyReducer({ queue: ['a'], step: 5 }, { type: 'wrong' })).toEqual({ queue: ['a'], step: 6 });
+  expect(studyReducer({ queue: ['a'], step: 5 }, { type: 'wrong', id: 'a' })).toEqual({ queue: ['a'], step: 6 });
 });
 
 it('restart replaces the queue and bumps step', () => {
@@ -53,6 +53,16 @@ it('restart replaces the queue and bumps step', () => {
 
 it('does not mutate the previous state', () => {
   const s = { queue: ['a', 'b'], step: 0 };
-  studyReducer(s, { type: 'wrong' });
+  studyReducer(s, { type: 'wrong', id: 'a' });
   expect(s).toEqual({ queue: ['a', 'b'], step: 0 });
+});
+
+it('right with an id that is not the queue head leaves the state untouched (stale swipe callback)', () => {
+  const s = { queue: ['a', 'b'], step: 3 };
+  expect(studyReducer(s, { type: 'right', id: 'zzz' })).toBe(s);
+});
+
+it('wrong with an id that is not the queue head leaves the state untouched', () => {
+  const s = { queue: ['a', 'b'], step: 3 };
+  expect(studyReducer(s, { type: 'wrong', id: 'b' })).toBe(s);
 });

@@ -41,16 +41,17 @@ function StudySession({ section }: { section: Section }) {
   const revealed = useRevealed(section.id);
   const [state, dispatch] = useReducer(studyReducer, undefined, () => initStudy(section, revealed));
   const cardRef = useRef<WordCardHandle>(null);
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
+  const gridWidth = Math.min(width - 40, 200, Math.round(height * 0.22));
   const currentId = state.queue[0];
   const index = section.words.findIndex((w) => w.id === currentId);
   const word = section.words[index];
 
   const onRight = () => {
     progressStore.reveal(section.id, currentId);
-    dispatch({ type: 'right' });
+    dispatch({ type: 'right', id: currentId });
   };
-  const onWrong = () => dispatch({ type: 'wrong' });
+  const onWrong = () => dispatch({ type: 'wrong', id: currentId });
   const onRestart = () => {
     progressStore.resetSection(section.id);
     dispatch({ type: 'restart', queue: section.words.map((w) => w.id) });
@@ -82,7 +83,7 @@ function StudySession({ section }: { section: Section }) {
     <>
       <Stack.Screen options={{ title: section.name }} />
       <ThemedView style={[styles.screen, styles.study]}>
-        <JigsawGrid section={section} revealed={revealed} width={Math.min(width - 40, 200)} />
+        <JigsawGrid section={section} revealed={revealed} width={gridWidth} />
         <ThemedText style={styles.count}>
           {`${countLearned(section, revealed)} / ${section.words.length} learned`}
         </ThemedText>
@@ -115,7 +116,7 @@ const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20 },
   link: { marginTop: 15, paddingVertical: 15 },
   count: { fontSize: 14, color: '#888' },
-  cardArea: { height: 360, alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center' },
+  cardArea: { flex: 1, minHeight: 200, alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center' },
   completion: { padding: 20, alignItems: 'center', gap: 20 },
   sentence: { fontSize: 18, lineHeight: 26, textAlign: 'center' },
   buttons: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, alignSelf: 'stretch' },
