@@ -1,5 +1,5 @@
 import React, { forwardRef, useImperativeHandle, useRef, useState } from 'react';
-import { Animated, StyleSheet, Text } from 'react-native';
+import { Animated, StyleSheet, Text, useWindowDimensions } from 'react-native';
 
 import { Tile } from '@/components/Jigsaw';
 import type { Section, Word } from '@/lib/sections';
@@ -9,6 +9,9 @@ export type WordCardHandle = { flip: () => void };
 type WordCardProps = { section: Section; word: Word; index: number };
 
 const FLIP_HALF_MS = 120;
+const TILE_MAX = 140;
+const TILE_MIN = 80;
+const TILE_WINDOW_FRACTION = 0.18; // keeps tile + word + hint inside the card on short phones
 
 /** Front: tile + English word. Back: meaning, example, pronunciation. Flip = 2D squash. */
 const WordCard = forwardRef<WordCardHandle, WordCardProps>(function WordCard(
@@ -18,6 +21,8 @@ const WordCard = forwardRef<WordCardHandle, WordCardProps>(function WordCard(
   const [showBack, setShowBack] = useState(false);
   const scaleX = useRef(new Animated.Value(1)).current;
   const animating = useRef(false);
+  const { height } = useWindowDimensions();
+  const tileSize = Math.min(TILE_MAX, Math.max(TILE_MIN, Math.round(height * TILE_WINDOW_FRACTION)));
 
   const flip = () => {
     if (animating.current) return;
@@ -43,7 +48,7 @@ const WordCard = forwardRef<WordCardHandle, WordCardProps>(function WordCard(
         </>
       ) : (
         <>
-          <Tile section={section} index={index} size={140} />
+          <Tile section={section} index={index} size={tileSize} />
           <Text style={styles.word}>{word.word}</Text>
           <Text style={styles.hint}>Tap to flip</Text>
         </>
@@ -65,7 +70,7 @@ const styles = StyleSheet.create({
   meaning: { fontSize: 26, fontWeight: 'bold', color: '#333', textAlign: 'center' },
   example: { fontSize: 16, fontStyle: 'italic', color: '#555', textAlign: 'center' },
   pronunciation: { fontSize: 16, fontFamily: 'SpaceMono', color: '#555', textAlign: 'center' },
-  hint: { position: 'absolute', bottom: 16, fontSize: 14, color: '#999' },
+  hint: { fontSize: 14, color: '#999' },
 });
 
 export default WordCard;
