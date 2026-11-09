@@ -45,6 +45,7 @@ export default function RootLayout() {
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
         <Stack.Screen name="index" options={{ title: 'Sections' }} />
+        <Stack.Screen name="study/[sectionId]" />
         <Stack.Screen name="+not-found" />
       </Stack>
       <StatusBar style="auto" />
