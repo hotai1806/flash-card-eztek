@@ -326,10 +326,11 @@ const App: React.FC = () => {
       <View style={styles.cardContainer}>
         {cardIndex < cards1.length ? (
           <SwipeCard
-            text={cards1[cardIndex]}
             onSwipeRight={handleSwipeRight}
             onSwipeLeft={handleSwipeLeft}
-          />
+          >
+            <Text>{cards1[cardIndex]}</Text>
+          </SwipeCard>
         ) : null}
       </View>
 

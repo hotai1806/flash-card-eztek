@@ -1,27 +1,23 @@
 import React, { useRef } from "react";
-import {
-  View,
-  Animated,
-  PanResponder,
-  Dimensions,
-  StyleSheet,
-  Text,
-} from "react-native";
+import { Animated, PanResponder, Dimensions, StyleSheet } from "react-native";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const SWIPE_THRESHOLD = 0.25 * SCREEN_WIDTH;
 const SWIPE_OUT_DURATION = 250;
+const TAP_SLOP = 10;
 
 interface SwipeCardProps {
-  text: string;
+  children: React.ReactNode;
   onSwipeRight?: () => void;
   onSwipeLeft?: () => void;
+  onTap?: () => void;
 }
 
 const SwipeCard: React.FC<SwipeCardProps> = ({
-  text,
+  children,
   onSwipeRight,
   onSwipeLeft,
+  onTap,
 }) => {
   const position = useRef(new Animated.ValueXY()).current;
 
@@ -31,7 +27,13 @@ const SwipeCard: React.FC<SwipeCardProps> = ({
       position.setValue({ x: gestureState.dx, y: gestureState.dy });
     },
     onPanResponderRelease: (_, gestureState) => {
-      if (gestureState.dx > SWIPE_THRESHOLD) {
+      if (
+        Math.abs(gestureState.dx) < TAP_SLOP &&
+        Math.abs(gestureState.dy) < TAP_SLOP
+      ) {
+        onTap?.();
+        resetPosition();
+      } else if (gestureState.dx > SWIPE_THRESHOLD) {
         swipeOffScreen("right");
       } else if (gestureState.dx < -SWIPE_THRESHOLD) {
         swipeOffScreen("left");
@@ -51,7 +53,6 @@ const SwipeCard: React.FC<SwipeCardProps> = ({
     }).start(() => {
       if (direction === "right" && onSwipeRight) onSwipeRight();
       if (direction === "left" && onSwipeLeft) onSwipeLeft();
-      position.setValue({ x: 0, y: 0 }); // Reset for reuse
     });
   };
 
@@ -71,7 +72,6 @@ const SwipeCard: React.FC<SwipeCardProps> = ({
   return (
     <Animated.View
       {...panResponder.panHandlers}
-      id={text}
       style={[
         styles.card,
         {
@@ -83,7 +83,7 @@ const SwipeCard: React.FC<SwipeCardProps> = ({
         },
       ]}
     >
-      <Text style={styles.text}>{text}</Text>
+      {children}
     </Animated.View>
   );
 };
@@ -91,20 +91,15 @@ const SwipeCard: React.FC<SwipeCardProps> = ({
 const styles = StyleSheet.create({
   card: {
     width: SCREEN_WIDTH - 40,
-    height: 300,
+    height: 360,
     backgroundColor: "#fff",
     borderRadius: 10,
     justifyContent: "center",
     alignItems: "center",
-    position: "absolute",
     shadowColor: "#000",
     shadowOpacity: 0.1,
     shadowRadius: 5,
     elevation: 3,
-  },
-  text: {
-    fontSize: 20,
-    fontWeight: "bold",
   },
 });
 
