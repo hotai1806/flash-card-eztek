@@ -105,3 +105,25 @@ describe('validateSections', () => {
     expect(errors).toContain("Section 'Beach' word 'shell' has an empty meaning");
   });
 });
+
+// eslint-disable-next-line import/first
+import { SECTIONS } from '@/content/sections';
+
+describe('shipped content', () => {
+  it('validates cleanly', () => {
+    expect(validateSections(SECTIONS)).toEqual([]);
+  });
+  it('has the three sample sections in order with full grids', () => {
+    expect(SECTIONS.map((s) => s.id)).toEqual(['kitchen', 'beach', 'classroom']);
+    expect(SECTIONS.map((s) => [s.cols, s.rows, s.words.length])).toEqual([
+      [3, 3, 9],
+      [3, 2, 6],
+      [4, 2, 8],
+    ]);
+  });
+  it('uses every word in its sentence', () => {
+    for (const s of SECTIONS) {
+      for (const w of s.words) expect(s.sentence.toLowerCase()).toContain(w.word);
+    }
+  });
+});
