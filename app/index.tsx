@@ -17,7 +17,9 @@ function SectionRow({ section }: { section: Section }) {
   const n = section.words.length;
   return (
     <Link href={{ pathname: '/study/[sectionId]', params: { sectionId: section.id } }} asChild>
-      <Pressable style={[styles.row, { backgroundColor: background, borderColor: border }]}>
+      {/* One flat object, not an array: Link asChild merges the child's style with an
+          object spread, and a spread array becomes numeric keys that crash react-dom. */}
+      <Pressable style={StyleSheet.flatten([styles.row, { backgroundColor: background, borderColor: border }])}>
         <JigsawGrid section={section} revealed={revealed} width={110} />
         <View style={styles.info}>
           <ThemedText style={styles.name}>{section.name}</ThemedText>
